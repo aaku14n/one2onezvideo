@@ -22,8 +22,8 @@ app.get("/", (req, res) => {
 
 const server = http.createServer(app);
 
-server.listen(4000, () => {
-  console.log("saerver on 4000");
+server.listen(5000, () => {
+  console.log("saerver on 5000");
 });
 
 const io = socketIo(server);
