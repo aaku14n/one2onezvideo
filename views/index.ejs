@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>Dogeller</title>
+    <link
+      href="https://fonts.googleapis.com/css?family=Montserrat:300,400,500,700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <div class="logo-container">
+          <img src="./img/doge.png" alt="doge logo" class="logo-img" />
+          <h1 class="logo-text">
+            Doge<span class="logo-highlight">ller</span>
+          </h1>
+        </div>
+      </header>
+      <div class="content-container">
+        <div class="active-users-panel" id="active-user-container">
+          <h3 class="panel-title">Active Users:</h3>
+        </div>
+        <div class="video-chat-container">
+          <h2 class="talk-info" id="talking-with-info">
+            Select active user on the left menu.
+          </h2>
+          <div class="video-container">
+            <video autoplay class="remote-video" id="remote-video"></video>
+            <video autoplay muted class="local-video" id="local-video"></video>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      let socket = io.connect("http://localhost:4000");
+
+      const { RTCPeerConnection, RTCSessionDescription } = window;
+      let isAlreadyCalling = false;
+      let peerConnection = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: "stun:stun.l.google.com:19302"
+          }
+        ]
+      });
+
+      navigator.getUserMedia(
+        { video: true, audio: true },
+        stream => {
+          const localVideo = document.getElementById("local-video");
+          if (localVideo) {
+            localVideo.srcObject = stream;
+          }
+
+          stream
+            .getTracks()
+            .forEach(track => peerConnection.addTrack(track, stream));
+        },
+        error => {
+          console.warn(error.message);
+        }
+      );
+      peerConnection.ontrack = function({ streams: [stream] }) {
+        const remoteVideo = document.getElementById("remote-video");
+        if (remoteVideo) {
+          remoteVideo.srcObject = stream;
+        }
+      };
+      socket.on("update-user-list", ({ users }) => {
+        updateUserList(users);
+      });
+
+      socket.on("remove-user", ({ socketId }) => {
+        const elToRemove = document.getElementById(socketId);
+
+        if (elToRemove) {
+          elToRemove.remove();
+        }
+      });
+
+      function updateUserList(socketIds) {
+        const activeUserContainer = document.getElementById(
+          "active-user-container"
+        );
+
+        socketIds.forEach(socketId => {
+          const alreadyExistingUser = document.getElementById(socketId);
+          if (!alreadyExistingUser) {
+            const userContainerEl = createUserItemContainer(socketId);
+            activeUserContainer.appendChild(userContainerEl);
+          }
+        });
+      }
+
+      function createUserItemContainer(socketId) {
+        const userContainerEl = document.createElement("div");
+
+        const usernameEl = document.createElement("p");
+
+        userContainerEl.setAttribute("class", "active-user");
+        userContainerEl.setAttribute("id", socketId);
+        usernameEl.setAttribute("class", "username");
+        usernameEl.innerHTML = `Socket: ${socketId}`;
+
+        userContainerEl.appendChild(usernameEl);
+
+        userContainerEl.addEventListener("click", () => {
+          // unselectUsersFromList();
+          userContainerEl.setAttribute(
+            "class",
+            "active-user active-user--selected"
+          );
+          const talkingWithInfo = document.getElementById("talking-with-info");
+          talkingWithInfo.innerHTML = `Talking with: "Socket: ${socketId}"`;
+          callUser(socketId);
+        });
+        return userContainerEl;
+      }
+
+      async function callUser(socketId) {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(
+          new RTCSessionDescription(offer)
+        );
+
+        socket.emit("call-user", {
+          offer,
+          to: socketId
+        });
+      }
+
+      socket.on("call-made", async data => {
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(data.offer)
+        );
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(
+          new RTCSessionDescription(answer)
+        );
+
+        socket.emit("make-answer", {
+          answer,
+          to: data.socket
+        });
+      });
+
+      socket.on("answer-made", async data => {
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(data.answer)
+        );
+
+        if (!isAlreadyCalling) {
+          callUser(data.socket);
+          isAlreadyCalling = true;
+        }
+      });
+    </script>
+  </body>
+</html>
